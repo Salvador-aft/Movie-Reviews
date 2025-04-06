@@ -1,99 +1,174 @@
+import os
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import requests
 import random
-from .models import TrendingReview 
+from django.conf import settings
+from .models import TrendingReview
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class RecentMovies(APIView):
     def get(self, request):
-        today = timezone.now().date()
-        thirty_days_ago = today - timezone.timedelta(days=30)
-
-        api_key = '746380f35f478dc2fa82a6825e3d5446'
-        url = f'https://api.themoviedb.org/3/discover/movie?api_key={api_key}&primary_release_date.gte={thirty_days_ago}&primary_release_date.lte={today}'
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            movies = response.json()['results']
+        try:
+            today = timezone.now().date()
+            thirty_days_ago = today - timezone.timedelta(days=30)
+            
+            api_key = os.getenv('TMDB_API_KEY')
+            access_token = os.getenv('TMDB_ACCESS_TOKEN')
+            
+            if not api_key or not access_token:
+                raise ValueError("Missing TMDB credentials in .env file")
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "accept": "application/json"
+            }
+            
+            url = f'https://api.themoviedb.org/3/discover/movie?api_key={api_key}&primary_release_date.gte={thirty_days_ago}&primary_release_date.lte={today}'
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            movies = response.json().get('results', [])
+            
 
             if len(movies) < 5:
-                remaining = 5 - len(movies)
-                older_movies_url = f'https://api.themoviedb.org/3/discover/movie?api_key={api_key}&primary_release_date.lte={thirty_days_ago}&sort_by=release_date.desc'
-                older_movies_response = requests.get(older_movies_url)
+                older_url = f'https://api.themoviedb.org/3/discover/movie?api_key={api_key}&primary_release_date.lte={thirty_days_ago}&sort_by=release_date.desc'
+                older_response = requests.get(older_url, headers=headers)
+                older_response.raise_for_status()
+                
+                movies.extend(older_response.json().get('results', [])[:5 - len(movies)])
+            
+            for movie in movies[:10]:
+                TrendingReview.objects.update_or_create(
+                    tmdb_id=movie.get('id'),
+                    defaults={
+                        'rating': random.randint(1, 5),
+                        'title': movie.get('title', 'Unknown')
+                    }
+                )
+            
+            reviews = TrendingReview.objects.filter(created_at__gte=thirty_days_ago).order_by('-created_at')[:10]
+            return Response([
+                {
+                    'tmdb_id': r.tmdb_id,
+                    'rating': r.rating,
+                    'title': r.title
+                } for r in reviews
+            ])
+            
+        except requests.exceptions.RequestException as e:
+            return Response({'error': f"TMDB API Error: {str(e)}"}, status=500)
+        except Exception as e:
+            return Response({'error': f"Server Error: {str(e)}"}, status=500)
 
-                if older_movies_response.status_code == 200:
-                    older_movies = older_movies_response.json()['results'][:remaining]
-                    movies.extend(older_movies)
 
-            for movie in movies:
-                tmdb_id = movie['id']
-                rating = random.randint(1, 5)  # Reseña aleatoria entre 1 y 5
-                TrendingReview.objects.create(tmdb_id=tmdb_id, rating=rating)
-
-            reviews = TrendingReview.objects.filter(created_at__gte=thirty_days_ago)
-            review_data = [{'tmdb_id': review.tmdb_id, 'rating': review.rating} for review in reviews]
-            return Response(review_data)
-        else:
-            return Response({'error': 'No se pudieron obtener las películas'}, status=500)
-        
 class TopRatedMovies(APIView):
     def get(self, request):
-        top_reviews = TrendingReview.objects.filter(rating=5).order_by('-rating')[:5]
-
-        if len(top_reviews) < 5:
-            remaining = 5 - len(top_reviews)
-            next_reviews = TrendingReview.objects.filter(rating__lt=5).order_by('-rating')[:remaining]
-            top_reviews = list(top_reviews) + list(next_reviews)
-
-        tmdb_ids = [review.tmdb_id for review in top_reviews]
-
-        api_key = '746380f35f478dc2fa82a6825e3d5446'
-        movie_data = []
-
-        for tmdb_id in tmdb_ids:
-            movie_url = f'https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={api_key}'
-            movie_response = requests.get(movie_url)
-
-            if movie_response.status_code == 200:
-                movie_info = movie_response.json()
-
-                poster_path = movie_info.get('poster_path')
-                poster_url = f'https://image.tmdb.org/t/p/w500{poster_path}' if poster_path else None
-
-                videos_url = f'https://api.themoviedb.org/3/movie/{tmdb_id}/videos?api_key={api_key}'
-                videos_response = requests.get(videos_url)
-                trailer_url = None
-
-                if videos_response.status_code == 200:
-                    videos_info = videos_response.json()
-                    for video in videos_info.get('results', []):
-                        if video.get('type') == 'Trailer' and video.get('site') == 'YouTube':
-                            trailer_url = f'https://www.youtube.com/watch?v={video.get("key")}'
-                            break
-
-                movie_data.append({
-                    'title': movie_info.get('title'),
-                    'genre': ', '.join([genre['name'] for genre in movie_info.get('genres', [])]),
-                    'duration': movie_info.get('runtime'),
-                    'release_date': movie_info.get('release_date'),
-                    'is_upcoming': False,
-                    'rating': next(review.rating for review in top_reviews if review.tmdb_id == tmdb_id),
-                    'poster_url': poster_url, 
-                    'trailer_url': trailer_url,
-                    'overview': movie_info.get('overview', 'Sin sinopsis disponible'),
-                })
+        try:
+            api_key = os.getenv('TMDB_API_KEY')
+            access_token = os.getenv('TMDB_ACCESS_TOKEN')
+            
+            if not api_key or not access_token:
+                raise ValueError("Missing TMDB credentials in .env file")
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "accept": "application/json"
+            }
+            
+            if TrendingReview.objects.exists():
+                top_reviews = TrendingReview.objects.order_by('-rating')[:5]
             else:
-                movie_data.append({
-                    'title': 'Película no disponible',
-                    'genre': 'N/A',
-                    'duration': 0,
-                    'release_date': 'N/A',
-                    'is_upcoming': False,
-                    'rating': 0,
-                    'poster_url': None,
-                    'trailer_url': None,
-                    'overview': 'Sin sinopsis disponible',
-                })
+                url = f'https://api.themoviedb.org/3/movie/popular?api_key={api_key}'
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                
+                for movie in response.json().get('results', [])[:5]:
+                    release_date_str = movie.get('release_date')
+                    try:
+                        release_date = datetime.strptime(release_date_str, '%Y-%m-%d').date() if release_date_str else None
+                    except:
+                        release_date = None
 
-        return Response(movie_data)
+                    review, created = TrendingReview.objects.get_or_create(
+                        tmdb_id=movie['id'],
+                        defaults={
+                            'title': movie.get('title', 'Unknown'),
+                            'rating': round(movie.get('vote_average', 5)),
+                            'overview': movie.get('overview', ''),
+                            'release_date': release_date,
+                            'poster_path': movie.get('poster_path', ''),
+                            'genres': ', '.join([str(g) for g in movie.get('genre_ids', [])]),
+                            'duration': movie.get('runtime')
+                        }
+                    )
+                
+                top_reviews = TrendingReview.objects.order_by('-rating')[:5]
+            
+            movie_data = []
+            for review in top_reviews:
+                try:
+                    movie_url = f'https://api.themoviedb.org/3/movie/{review.tmdb_id}?api_key={api_key}'
+                    movie_response = requests.get(movie_url, headers=headers)
+                    movie_response.raise_for_status()
+                    movie_info = movie_response.json()
+                    
+                    trailer_url = None
+                    videos_url = f'https://api.themoviedb.org/3/movie/{review.tmdb_id}/videos?api_key={api_key}'
+                    videos_response = requests.get(videos_url, headers=headers)
+                    
+                    if videos_response.status_code == 200:
+                        for video in videos_response.json().get('results', []):
+                            if video.get('type') == 'Trailer' and video.get('site') == 'YouTube':
+                                trailer_url = f'https://www.youtube.com/watch?v={video["key"]}'
+                                break
+                    
+                    release_date_str = movie_info.get('release_date')
+                    release_date = release_date_str if release_date_str else 'N/A'
+                    
+                    duration_min = movie_info.get('runtime')
+                    if duration_min:
+                        duration = f"{duration_min//60}h {duration_min%60}m"
+                    else:
+                        duration = 'N/A'
+                    
+                    movie_data.append({
+                        'title': movie_info.get('title', review.title),
+                        'genre': ', '.join([g['name'] for g in movie_info.get('genres', [])]) or 'N/A',
+                        'duration': duration,
+                        'release_date': release_date,
+                        'is_upcoming': False,
+                        'rating': review.rating,
+                        'poster_url': f'https://image.tmdb.org/t/p/w500{movie_info["poster_path"]}' if movie_info.get('poster_path') else None,
+                        'trailer_url': trailer_url,
+                        'overview': movie_info.get('overview', 'Sin sinopsis disponible')
+                    })
+                    
+                except requests.exceptions.RequestException:
+                    release_date = review.release_date.strftime('%Y-%m-%d') if review.release_date else 'N/A'
+                    
+                    if review.duration:
+                        duration = f"{review.duration//60}h {review.duration%60}m"
+                    else:
+                        duration = 'N/A'
+                    
+                    movie_data.append({
+                        'title': review.title,
+                        'genre': review.genres or 'N/A',
+                        'duration': duration,
+                        'release_date': release_date,
+                        'is_upcoming': False,
+                        'rating': review.rating,
+                        'poster_url': f'https://image.tmdb.org/t/p/w500{review.poster_path}' if review.poster_path else None,
+                        'trailer_url': None,
+                        'overview': review.overview or 'Sin sinopsis disponible'
+                    })
+                    
+            return Response(movie_data)
+            
+        except Exception as e:
+            print(f">>> Error en TopRatedMovies: {str(e)}")
+            return Response({'error': f"Server Error: {str(e)}"}, status=500)

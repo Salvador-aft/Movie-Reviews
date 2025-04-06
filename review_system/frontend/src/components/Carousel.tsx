@@ -64,7 +64,7 @@ const TiltedCarousel: React.FC = () => {
         {[prevPrevIndex, prevIndex, activeIndex, nextIndex, nextNextIndex].map((index) => {
           const movie = movies[index];
           let width = "45vw";
-          let translateX: string = "0"; // Cambia el tipo a string
+          let translateX: string = "0";
           let scale = 0.75;
           let rotateY = 0;
           let opacity = 0;
@@ -78,7 +78,7 @@ const TiltedCarousel: React.FC = () => {
             translateX = "-50vw";
             opacity = 1;
           } else if (index === nextIndex) {
-            translateX = "50vw"; // Asigna un valor en vw
+            translateX = "50vw";
             opacity = 1;
           }
 

@@ -60,7 +60,7 @@ class Review(models.Model):
     title = models.CharField(max_length=200)
     comment = models.TextField(max_length=2000)
     created_at = models.DateTimeField(auto_now_add=True)
-    tmdb_id = models.IntegerField(default=0)  # Valor predeterminado
+    tmdb_id = models.IntegerField(default=0)
     rating = models.IntegerField(choices=[(i, f'{i} star{"s" if i > 1 else ""}') for i in range(1, 6)])
 
     def __str__(self):
@@ -77,12 +77,22 @@ class Profile(models.Model):
         return f"Profile of {self.user.username}"
     
 class TrendingReview(models.Model):
-    tmdb_id = models.IntegerField()
+    tmdb_id = models.IntegerField(unique=True)
+    title = models.CharField(max_length=255, blank=True, null=True)
     rating = models.IntegerField(choices=[(i, f'{i} star{"s" if i > 1 else ""}') for i in range(1, 6)])
+    overview = models.TextField(blank=True, null=True)
+    release_date = models.DateField(blank=True, null=True)
+    poster_path = models.CharField(max_length=255, blank=True, null=True)
+    genres = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True) 
+
+    class Meta:
+        ordering = ['-rating']
+        verbose_name_plural = "Trending Reviews"
 
     def __str__(self):
-        return f"Trending Review for movie ID {self.tmdb_id} with rating {self.rating}"
+        return f"{self.title} ({self.rating} stars)" if self.title else f"Movie ID: {self.tmdb_id} ({self.rating} stars)"
 
 
 @receiver(post_save, sender=User)

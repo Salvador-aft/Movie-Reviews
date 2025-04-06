@@ -19,5 +19,5 @@ def update_recent_movies():
         movies = response.json()['results']
         for movie in movies:
             tmdb_id = movie['id']
-            rating = random.randint(1, 5)  # Reseña aleatoria entre 1 y 5
+            rating = random.randint(1, 5)
             TrendingReview.objects.create(tmdb_id=tmdb_id, rating=rating)

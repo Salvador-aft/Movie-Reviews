@@ -1,10 +1,12 @@
-"""
-Django settings for review_system project.
-"""
-
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from celery.schedules import crontab
+
+load_dotenv()
+
+TMDB_API_KEY = os.getenv('TMDB_API_KEY')
+TMDB_ACCESS_TOKEN = os.getenv('TMDB_ACCESS_TOKEN')
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -67,7 +69,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'review_system_db',
         'USER': 'postgres',
-        'PASSWORD': "p7'1P;Z1}#!1",
+        'PASSWORD': r"p7'1P;Z1}#!1",
         'HOST': 'localhost',
         'PORT': '5432',
     }
